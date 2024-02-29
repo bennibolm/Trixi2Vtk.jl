@@ -176,6 +176,94 @@ function build_vtk_grids(::Val{:vtu},
   return vtk_nodedata, vtk_celldata
 end
 
+# Create and return VTK grids that are ready to be filled with data
+# (StructuredMesh/UnstructuredMesh2D/P4estMesh version).
+# Routine is agnostic with respect to reinterpolation.
+function build_vtk_grids(::Val{:vtu},
+                         mesh::Trixi.TriangularMesh,
+                         nodes, n_visnodes, verbose, output_directory, is_datafile, filename,
+                         reinterpolate::Union{Val{true}, Val{false}})
+
+  # @timeit "prepare coordinate information" node_coordinates = calc_node_coordinates(mesh, nodes, n_visnodes)
+  (; data_points, triangulation_vertices) = mesh
+
+  # Calculate VTK points and cells
+  verbose && println("| Preparing VTK cells...")
+  if is_datafile
+    @timeit "prepare VTK cells (node data)" begin
+      vtk_points, vtk_cells = calc_vtk_points_cells(data_points, triangulation_vertices)
+    end
+  end
+
+  # Prepare VTK points and cells for celldata file
+  @timeit "prepare VTK cells (cell data)" begin
+    vtk_celldata_points, vtk_celldata_cells = calc_vtk_points_cells(data_points, triangulation_vertices)
+  end
+
+  # Determine output file names
+  base, _ = splitext(splitdir(filename)[2])
+  vtk_filename = joinpath(output_directory, base)
+  vtk_celldata_filename = vtk_filename * "_celldata"
+
+  # Open VTK files
+  verbose && println("| Building VTK grid...")
+  if is_datafile
+    @timeit "build VTK grid (node data)" vtk_nodedata = vtk_grid(vtk_filename, vtk_points,
+                                                                 vtk_cells)
+  else
+    vtk_nodedata = nothing
+  end
+  @timeit "build VTK grid (cell data)" vtk_celldata = vtk_grid(vtk_celldata_filename,
+                                                                vtk_celldata_points,
+                                                                vtk_celldata_cells)
+
+  return vtk_nodedata, vtk_celldata
+end
+
+# Create and return VTK grids that are ready to be filled with data
+# (StructuredMesh/UnstructuredMesh2D/P4estMesh version).
+# Routine is agnostic with respect to reinterpolation.
+function build_vtk_grids(::Val{:vtu},
+                         mesh::Trixi.PolygonMesh,
+                         nodes, n_visnodes, verbose, output_directory, is_datafile, filename,
+                         reinterpolate::Union{Val{true}, Val{false}})
+
+  # @timeit "prepare coordinate information" node_coordinates = calc_node_coordinates(mesh, nodes, n_visnodes)
+  (; voronoi_vertices_coordinates, voronoi_vertices, voronoi_vertices_interval) = mesh
+
+  # Calculate VTK points and cells
+  verbose && println("| Preparing VTK cells...")
+  if is_datafile
+    @timeit "prepare VTK cells (node data)" begin
+      vtk_points, vtk_cells = calc_vtk_points_cells(voronoi_vertices_coordinates, voronoi_vertices, voronoi_vertices_interval)
+    end
+  end
+
+  # Prepare VTK points and cells for celldata file
+  @timeit "prepare VTK cells (cell data)" begin
+    vtk_celldata_points, vtk_celldata_cells = calc_vtk_points_cells(voronoi_vertices_coordinates, voronoi_vertices, voronoi_vertices_interval)
+  end
+
+  # Determine output file names
+  base, _ = splitext(splitdir(filename)[2])
+  vtk_filename = joinpath(output_directory, base)
+  vtk_celldata_filename = vtk_filename * "_celldata"
+
+  # Open VTK files
+  verbose && println("| Building VTK grid...")
+  if is_datafile
+    @timeit "build VTK grid (node data)" vtk_nodedata = vtk_grid(vtk_filename, vtk_points,
+                                                                 vtk_cells)
+  else
+    vtk_nodedata = nothing
+  end
+  @timeit "build VTK grid (cell data)" vtk_celldata = vtk_grid(vtk_celldata_filename,
+                                                                vtk_celldata_points,
+                                                                vtk_celldata_cells)
+
+  return vtk_nodedata, vtk_celldata
+end
+
 
 function calc_node_coordinates(mesh::TreeMesh, nodes, n_visnodes)
   coordinates, levels, _, _ = extract_mesh_information(mesh)
@@ -657,6 +745,57 @@ function calc_vtk_points_cells(node_coordinates::AbstractArray{<:Any,5})
 
     point_ids = vcat(vertices, edges, faces, volume)
     vtk_cells[element] = MeshCell(VTKCellTypes.VTK_LAGRANGE_HEXAHEDRON, point_ids)
+  end
+
+  return vtk_points, vtk_cells
+end
+
+# Convert coordinates and level information to a list of points and VTK cells for `TriangularMesh` (2D version)
+function calc_vtk_points_cells(data_points::AbstractArray{<:Any,2}, tri_vertices::AbstractArray{<:Any, 2})
+  n_elements = size(tri_vertices, 2)
+
+  # Use lagrange nodes as VTK points
+  vtk_points = data_points
+  vtk_cells = Vector{MeshCell}(undef, n_elements)
+
+  # Create cell for each element
+  for element in 1:n_elements
+    # vertices = tri_vertices[:, element]
+
+    # edges = vcat(tri_vertices[:, element],
+    #              tri_vertices[1, element])
+
+    # faces = vec(linear_indices[2:end-1, 2:end-1, element])
+
+    point_ids = tri_vertices[:, element]
+    vtk_cells[element] = MeshCell(VTKCellTypes.VTK_TRIANGLE, point_ids)
+  end
+
+  return vtk_points, vtk_cells
+end
+
+# Convert coordinates and level information to a list of points and VTK cells for `PolygonMesh` (2D version)
+function calc_vtk_points_cells(voronoi_vertices_coordinates::AbstractArray{<:Any,2}, voronoi_vertices::AbstractArray{<:Any}, voronoi_vertices_interval::AbstractArray{<:Any, 2})
+  n_elements = size(voronoi_vertices_interval, 2)
+
+  # Use lagrange nodes as VTK points
+  vtk_points = voronoi_vertices_coordinates
+  vtk_cells = Vector{MeshCell}(undef, n_elements)
+
+  # Create cell for each element
+  for element in 1:n_elements
+    index_start = voronoi_vertices_interval[1, element]
+    index_end = voronoi_vertices_interval[2, element]
+
+    # vertices = tri_vertices[:, element]
+
+    # edges = vcat(voronoi_vertices[index_start:index_end, element],
+    #              voronoi_vertices[index_start, element])
+
+    # faces = vec(linear_indices[2:end-1, 2:end-1, element])
+
+    point_ids = voronoi_vertices[index_start:index_end]
+    vtk_cells[element] = MeshCell(VTKCellTypes.VTK_POLYGON, point_ids)
   end
 
   return vtk_points, vtk_cells

@@ -298,6 +298,16 @@ function assert_cells_elements(n_elements, mesh::P4estMesh, filename, meshfile)
 end
 
 
+function assert_cells_elements(n_elements, mesh::Union{Trixi.TriangularMesh, Trixi.PolygonMesh}, filename, meshfile)
+  # Check if dimensions match
+  if mesh.n_elements != n_elements
+    error("number of elements in '$(filename)' do not match number of cells in " *
+          "'$(meshfile)' " *
+          "(did you forget to clean your 'out/' directory between different runs?)")
+  end
+end
+
+
 # default number of visualization nodes if a solution should be visualized
 function get_default_nvisnodes_solution(nvisnodes, n_nodes, mesh::TreeMesh)
   if nvisnodes === nothing
@@ -310,7 +320,7 @@ function get_default_nvisnodes_solution(nvisnodes, n_nodes, mesh::TreeMesh)
 end
 
 function get_default_nvisnodes_solution(nvisnodes, n_nodes,
-                                        mesh::Union{StructuredMesh, UnstructuredMesh2D, P4estMesh})
+                                        mesh::Union{StructuredMesh, UnstructuredMesh2D, P4estMesh, Trixi.TriangularMesh, Trixi.PolygonMesh})
   if nvisnodes === nothing || nvisnodes == 0
     return n_nodes
   else
@@ -403,6 +413,16 @@ function add_celldata!(vtk_celldata, mesh::P4estMesh, verbose)
     @timeit "element_ids" vtk_celldata["element_ids"] = collect(1:Trixi.ncells(mesh))
     verbose && println("| | levels...")
     @timeit "levels" vtk_celldata["levels"] = cell_levels
+  end
+
+  return vtk_celldata
+end
+
+function add_celldata!(vtk_celldata, mesh::Union{Trixi.TriangularMesh, Trixi.PolygonMesh}, verbose)
+  @timeit "add data to VTK file" begin
+    # Add element data to celldata VTK file
+    verbose && println("| | element_ids...")
+    @timeit "element_ids" vtk_celldata["element_ids"] = collect(1:mesh.n_elements)
   end
 
   return vtk_celldata
